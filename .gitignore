@@ -1,0 +1,41 @@
+# Claude Code local session data — never committed
+.claude/
+.claude
+
+# Build output
+/bin/
+/dist/
+ledgerd
+workerd
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test & coverage artifacts
+*.test
+cover.out
+coverage.html
+/testdata/tmp/
+
+# Go workspace files
+go.work
+go.work.sum
+
+# Fuzzing corpus generated at runtime (seed corpus under testdata/fuzz IS committed)
+**/testdata/fuzz/**/[0-9a-f]*
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
