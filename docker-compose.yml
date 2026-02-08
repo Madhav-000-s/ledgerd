@@ -1,0 +1,38 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ledgerd-postgres
+    environment:
+      POSTGRES_USER: ledgerd
+      POSTGRES_PASSWORD: ledgerd
+      POSTGRES_DB: ledgerd
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    command:
+      # A pathological lock wait should fail loudly rather than hang. These match the
+      # per-connection settings the application sets for itself, so a psql session
+      # behaves the same way the service does.
+      - postgres
+      - -c
+      - lock_timeout=3s
+      - -c
+      - statement_timeout=10s
+      # The concurrency suite runs dozens of goroutines against one database.
+      - -c
+      - max_connections=200
+      # Deadlocks are supposed to be impossible by construction; log any that occur
+      # immediately rather than after the default one-second detection delay.
+      - -c
+      - log_lock_waits=on
+      - -c
+      - deadlock_timeout=200ms
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ledgerd -d ledgerd"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  pgdata:

@@ -1,0 +1,28 @@
+version: "2"
+
+# sqlc generates type-safe Go from the hand-written SQL in internal/postgres/query,
+# checked against the real migrations. The SQL stays visible and reviewable — which
+# matters here more than usual, because the locking semantics in the ledger queries are
+# the load-bearing part of the design and an ORM would hide exactly them.
+#
+# Regenerate with `make sqlc`. The output is committed so that a clone builds without
+# the tool installed.
+sql:
+  - engine: postgresql
+    schema: "migrations"
+    queries: "internal/postgres/query"
+    gen:
+      go:
+        package: "sqlc"
+        out: "internal/postgres/sqlc"
+        sql_package: "pgx/v5"
+        emit_pointers_for_null_types: true
+        emit_empty_slices: true
+        overrides:
+          # CHAR(3) currency columns are a fixed-width code, not free text.
+          - column: "accounts.currency"
+            go_type: "string"
+          - column: "transactions.currency"
+            go_type: "string"
+          - column: "entries.currency"
+            go_type: "string"
