@@ -56,6 +56,49 @@ func (ns NullAccountType) Value() (driver.Value, error) {
 	return string(ns.AccountType), nil
 }
 
+type ApiKeyRole string
+
+const (
+	ApiKeyRoleRead  ApiKeyRole = "read"
+	ApiKeyRoleWrite ApiKeyRole = "write"
+	ApiKeyRoleAdmin ApiKeyRole = "admin"
+)
+
+func (e *ApiKeyRole) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ApiKeyRole(s)
+	case string:
+		*e = ApiKeyRole(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ApiKeyRole: %T", src)
+	}
+	return nil
+}
+
+type NullApiKeyRole struct {
+	ApiKeyRole ApiKeyRole
+	Valid      bool // Valid is true if ApiKeyRole is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullApiKeyRole) Scan(value interface{}) error {
+	if value == nil {
+		ns.ApiKeyRole, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ApiKeyRole.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullApiKeyRole) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ApiKeyRole), nil
+}
+
 type BalanceSide string
 
 const (
@@ -203,6 +246,19 @@ type AccountBalance struct {
 	PendingMinor int64
 	Version      int64
 	UpdatedAt    pgtype.Timestamptz
+}
+
+type ApiKey struct {
+	ID         string
+	MerchantID string
+	Name       string
+	Lookup     string
+	SecretHash []byte
+	Role       ApiKeyRole
+	Livemode   bool
+	LastUsedAt pgtype.Timestamptz
+	RevokedAt  pgtype.Timestamptz
+	CreatedAt  pgtype.Timestamptz
 }
 
 type Entry struct {

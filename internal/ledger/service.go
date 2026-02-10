@@ -37,6 +37,9 @@ type Service interface {
 	// GetAccount returns an account by id.
 	GetAccount(ctx context.Context, accountID string) (*Account, error)
 
+	// ListAccounts returns a merchant's chart of accounts.
+	ListAccounts(ctx context.Context, merchantID string) ([]*Account, error)
+
 	// Balance returns an account's materialized balance.
 	Balance(ctx context.Context, accountID string) (Balance, error)
 
@@ -98,6 +101,10 @@ func (s *service) CreateAccount(ctx context.Context, a *Account) (*Account, erro
 
 func (s *service) GetAccount(ctx context.Context, accountID string) (*Account, error) {
 	return s.repo.GetAccount(ctx, accountID)
+}
+
+func (s *service) ListAccounts(ctx context.Context, merchantID string) ([]*Account, error) {
+	return s.repo.ListAccounts(ctx, merchantID)
 }
 
 func (s *service) Balance(ctx context.Context, accountID string) (Balance, error) {
