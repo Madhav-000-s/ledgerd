@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"runtime/debug"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/Madhav-000-s/ledgerd/internal/idempotency"
 	"github.com/Madhav-000-s/ledgerd/internal/ledger"
 	"github.com/Madhav-000-s/ledgerd/internal/platform/config"
 )
@@ -31,6 +33,7 @@ type Server struct {
 	tx      TxRunner
 	keys    APIKeyStore
 	health  Health
+	idem    idempotency.Store
 	limiter *rateLimiter
 	handler http.Handler
 }
@@ -42,6 +45,11 @@ type Options struct {
 	Tx     TxRunner
 	Keys   APIKeyStore
 	Health Health
+
+	// Idempotency may be nil, in which case money-mutating routes do not require a key.
+	// Production always supplies one; leaving it out is for tests that are exercising
+	// something else.
+	Idempotency idempotency.Store
 }
 
 // NewServer wires the router.
@@ -52,10 +60,58 @@ func NewServer(opts Options) *Server {
 		tx:      opts.Tx,
 		keys:    opts.Keys,
 		health:  opts.Health,
+		idem:    opts.Idempotency,
 		limiter: newRateLimiter(opts.Config.RateLimitPerMin),
 	}
 	s.handler = s.routes()
 	return s
+}
+
+// idempotent wraps money-mutating routes.
+//
+// It sits after authentication, because keys are merchant-scoped and the tenant is not
+// known until then, and after body limiting, because it hashes the body and hashing an
+// unbounded one is a denial of service waiting to happen.
+func (s *Server) idempotent(next http.Handler) http.Handler {
+	if s.idem == nil {
+		return next
+	}
+
+	mw := idempotency.New(
+		s.idem,
+		func(r *http.Request) (string, bool) {
+			auth, ok := AuthFrom(r.Context())
+			return auth.MerchantID, ok
+		},
+		writeError,
+		idempotency.WithRequestID(RequestIDFrom),
+	)
+	return mw.Handler(next)
+}
+
+// completeIdempotent serializes a response and records it in the caller's transaction.
+//
+// This is the ordering property the idempotency design rests on: the response is
+// persisted in the same commit as the ledger entries, so no crash can leave money moved
+// with no replayable answer. It returns the bytes to write once the transaction commits.
+func (s *Server) completeIdempotent(ctx context.Context, status int, payload any, resourceID string) ([]byte, error) {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	if s.idem != nil {
+		if err := idempotency.Complete(ctx, s.idem, status, body, resourceID); err != nil {
+			return nil, err
+		}
+	}
+	return body, nil
+}
+
+// writeRecorded writes bytes already serialized inside a transaction.
+func writeRecorded(w http.ResponseWriter, status int, body []byte) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_, _ = w.Write(body)
 }
 
 // ServeHTTP implements http.Handler.
@@ -114,10 +170,17 @@ func (s *Server) routes() http.Handler {
 			r.Get("/transactions/{id}", s.handleGetTransaction)
 		})
 
+		// Creating an account is not a money movement, so it does not require a key.
 		r.Group(func(r chi.Router) {
 			r.Use(requireRole(RoleWrite))
-
 			r.Post("/accounts", s.handleCreateAccount)
+		})
+
+		// Everything that moves money does.
+		r.Group(func(r chi.Router) {
+			r.Use(requireRole(RoleWrite))
+			r.Use(s.idempotent)
+
 			r.Post("/transfers", s.handleCreateTransfer)
 			r.Post("/transactions/{id}/reverse", s.handleReverseTransaction)
 		})

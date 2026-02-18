@@ -10,6 +10,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/Madhav-000-s/ledgerd/internal/idempotency"
 	"github.com/Madhav-000-s/ledgerd/internal/ledger"
 	"github.com/Madhav-000-s/ledgerd/internal/money"
 )
@@ -139,6 +140,14 @@ var errorTable = []mapping{
 	{ledger.ErrNotPending, http.StatusConflict, TypeLedger, "transaction_not_pending", ""},
 	{ledger.ErrNotPosted, http.StatusConflict, TypeLedger, "transaction_not_posted", ""},
 	{ledger.ErrInvalidAmount, http.StatusBadRequest, TypeInvalidRequest, "invalid_amount", "amount"},
+
+	// Idempotency. A key reused for a different request is a 422 rather than a 409: the
+	// request is well formed, but honouring it would mean answering a question the
+	// client did not ask.
+	{idempotency.ErrKeyRequired, http.StatusBadRequest, TypeIdempotency, "idempotency_key_required", "Idempotency-Key"},
+	{idempotency.ErrInvalidKey, http.StatusBadRequest, TypeIdempotency, "invalid_idempotency_key", "Idempotency-Key"},
+	{idempotency.ErrFingerprintMismatch, http.StatusUnprocessableEntity, TypeIdempotency, "idempotency_key_reuse", "Idempotency-Key"},
+	{idempotency.ErrInProgress, http.StatusConflict, TypeIdempotency, "idempotency_conflict", "Idempotency-Key"},
 
 	// Money. An overflow is a caller sending an absurd number, not a server fault, so it
 	// is a 400 rather than a 500.

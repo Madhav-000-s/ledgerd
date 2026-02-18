@@ -184,6 +184,49 @@ func (ns NullEntryStatus) Value() (driver.Value, error) {
 	return string(ns.EntryStatus), nil
 }
 
+type IdemState string
+
+const (
+	IdemStateInProgress IdemState = "in_progress"
+	IdemStateSucceeded  IdemState = "succeeded"
+	IdemStateFailed     IdemState = "failed"
+)
+
+func (e *IdemState) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = IdemState(s)
+	case string:
+		*e = IdemState(s)
+	default:
+		return fmt.Errorf("unsupported scan type for IdemState: %T", src)
+	}
+	return nil
+}
+
+type NullIdemState struct {
+	IdemState IdemState
+	Valid     bool // Valid is true if IdemState is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullIdemState) Scan(value interface{}) error {
+	if value == nil {
+		ns.IdemState, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.IdemState.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullIdemState) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.IdemState), nil
+}
+
 type TxnStatus string
 
 const (
@@ -272,6 +315,24 @@ type Entry struct {
 	Seq           int16
 	BalanceAfter  int64
 	CreatedAt     pgtype.Timestamptz
+}
+
+type IdempotencyKey struct {
+	ID             string
+	MerchantID     string
+	IdempotencyKey string
+	RequestMethod  string
+	RequestPath    string
+	RequestHash    []byte
+	State          IdemState
+	RecoveryPoint  string
+	LockExpiresAt  pgtype.Timestamptz
+	ResponseStatus *int32
+	ResponseBody   []byte
+	ResourceID     *string
+	RequestID      *string
+	CreatedAt      pgtype.Timestamptz
+	ExpiresAt      pgtype.Timestamptz
 }
 
 type Transaction struct {

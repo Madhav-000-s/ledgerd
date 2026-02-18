@@ -86,10 +86,12 @@ func (s *Server) handleCreateTransfer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var txn *ledger.Transaction
+	// The response is serialized and the idempotency record completed inside the same
+	// transaction as the ledger write, so a crash cannot leave money moved with no
+	// replayable answer.
+	var body []byte
 	err = s.tx.InTx(r.Context(), func(ctx context.Context) error {
-		var err error
-		txn, err = s.ledger.Post(ctx, ledger.TransactionSpec{
+		txn, err := s.ledger.Post(ctx, ledger.TransactionSpec{
 			MerchantID:  auth.MerchantID,
 			Description: req.Description,
 			ExternalRef: req.ExternalRef,
@@ -97,6 +99,11 @@ func (s *Server) handleCreateTransfer(w http.ResponseWriter, r *http.Request) {
 			Pending:     req.Pending,
 			Metadata:    req.Metadata,
 		})
+		if err != nil {
+			return err
+		}
+
+		body, err = s.completeIdempotent(ctx, http.StatusCreated, newTransactionResponse(txn), txn.ID)
 		return err
 	})
 	if err != nil {
@@ -104,7 +111,7 @@ func (s *Server) handleCreateTransfer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, r, http.StatusCreated, newTransactionResponse(txn))
+	writeRecorded(w, http.StatusCreated, body)
 }
 
 type reverseTransactionRequest struct {
@@ -138,10 +145,14 @@ func (s *Server) handleReverseTransaction(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	var reversal *ledger.Transaction
+	var body []byte
 	err = s.tx.InTx(r.Context(), func(ctx context.Context) error {
-		var err error
-		reversal, err = s.ledger.Reverse(ctx, txnID, req.Reason)
+		reversal, err := s.ledger.Reverse(ctx, txnID, req.Reason)
+		if err != nil {
+			return err
+		}
+
+		body, err = s.completeIdempotent(ctx, http.StatusCreated, newTransactionResponse(reversal), reversal.ID)
 		return err
 	})
 	if err != nil {
@@ -149,7 +160,7 @@ func (s *Server) handleReverseTransaction(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	writeJSON(w, r, http.StatusCreated, newTransactionResponse(reversal))
+	writeRecorded(w, http.StatusCreated, body)
 }
 
 // assertAccountsBelongTo verifies every account in the spec is the caller's.
