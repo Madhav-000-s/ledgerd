@@ -74,6 +74,11 @@ type Repository interface {
 	// returns ErrTransactionNotFound when there is none.
 	FindReversal(ctx context.Context, reversesID string) (*Transaction, error)
 
+	// TransactionsByRef returns every transaction belonging to one external object, in
+	// creation order. A payment's public state is derived from these, so it cannot
+	// disagree with the books.
+	TransactionsByRef(ctx context.Context, merchantID, externalRef string) ([]*Transaction, error)
+
 	// AppendEntries inserts entries and returns them with their assigned ids. There is
 	// deliberately no update or delete: the append-only property is what makes the
 	// ledger auditable, and it is enforced again in the database by a rule.

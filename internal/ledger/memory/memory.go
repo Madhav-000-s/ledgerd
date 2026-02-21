@@ -248,6 +248,36 @@ func (s *Store) FindReversal(ctx context.Context, reversesID string) (*ledger.Tr
 	return nil, fmt.Errorf("%w: nothing reverses %s", ledger.ErrTransactionNotFound, reversesID)
 }
 
+func (s *Store) TransactionsByRef(ctx context.Context, merchantID, externalRef string) ([]*ledger.Transaction, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if externalRef == "" {
+		return nil, nil
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	out := make([]*ledger.Transaction, 0, 2)
+	for _, t := range s.transactions {
+		if t.MerchantID != merchantID || t.ExternalRef != externalRef {
+			continue
+		}
+		clone := *t
+		for _, e := range s.entries {
+			if e.TransactionID == t.ID {
+				clone.Entries = append(clone.Entries, e)
+			}
+		}
+		out = append(out, &clone)
+	}
+
+	// Creation order, with the id as a tiebreak so the result is stable.
+	sortTransactions(out)
+	return out, nil
+}
+
 // AppendEntries is append-only by construction: there is no method here that can modify
 // or remove an entry once written, mirroring the database rule that makes the same
 // guarantee against a manual psql session.
@@ -395,6 +425,21 @@ func (s *Store) DerivedPending(accountID string) int64 {
 		sum += account.SignedDelta(e.Direction, e.Amount)
 	}
 	return sum
+}
+
+// sortTransactions orders by creation time, with the id as a tiebreak so that two
+// transactions written in the same instant still come back in a stable order.
+func sortTransactions(ts []*ledger.Transaction) {
+	for i := 1; i < len(ts); i++ {
+		for j := i; j > 0; j-- {
+			prev, cur := ts[j-1], ts[j]
+			if prev.CreatedAt.Before(cur.CreatedAt) ||
+				(prev.CreatedAt.Equal(cur.CreatedAt) && prev.ID <= cur.ID) {
+				break
+			}
+			ts[j], ts[j-1] = ts[j-1], ts[j]
+		}
+	}
 }
 
 func sortAccounts(as []*ledger.Account) {

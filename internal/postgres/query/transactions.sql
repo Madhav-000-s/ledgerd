@@ -52,3 +52,15 @@ SELECT id, merchant_id, status, currency, description, reverses_id, external_ref
    AND created_at < $1
  ORDER BY created_at
  LIMIT $2;
+
+-- TransactionsByRef returns every ledger transaction belonging to one external object —
+-- a payment or a refund. A payment's public state is derived from these rather than
+-- stored in a mutable column, so it cannot disagree with the books.
+--
+-- name: TransactionsByRef :many
+SELECT id, merchant_id, status, currency, description, reverses_id, external_ref,
+       metadata, created_at, posted_at
+  FROM transactions
+ WHERE merchant_id = $1
+   AND external_ref = $2
+ ORDER BY created_at, id;

@@ -226,3 +226,51 @@ func (q *Queries) SetTransactionStatus(ctx context.Context, arg SetTransactionSt
 	}
 	return result.RowsAffected(), nil
 }
+
+const transactionsByRef = `-- name: TransactionsByRef :many
+SELECT id, merchant_id, status, currency, description, reverses_id, external_ref,
+       metadata, created_at, posted_at
+  FROM transactions
+ WHERE merchant_id = $1
+   AND external_ref = $2
+ ORDER BY created_at, id
+`
+
+type TransactionsByRefParams struct {
+	MerchantID  string
+	ExternalRef *string
+}
+
+// TransactionsByRef returns every ledger transaction belonging to one external object —
+// a payment or a refund. A payment's public state is derived from these rather than
+// stored in a mutable column, so it cannot disagree with the books.
+func (q *Queries) TransactionsByRef(ctx context.Context, arg TransactionsByRefParams) ([]Transaction, error) {
+	rows, err := q.db.Query(ctx, transactionsByRef, arg.MerchantID, arg.ExternalRef)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Transaction{}
+	for rows.Next() {
+		var i Transaction
+		if err := rows.Scan(
+			&i.ID,
+			&i.MerchantID,
+			&i.Status,
+			&i.Currency,
+			&i.Description,
+			&i.ReversesID,
+			&i.ExternalRef,
+			&i.Metadata,
+			&i.CreatedAt,
+			&i.PostedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

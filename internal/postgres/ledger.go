@@ -271,6 +271,31 @@ func (r *LedgerRepo) FindReversal(ctx context.Context, reversesID string) (*ledg
 	return transactionFromRow(sqlc.Transaction(row))
 }
 
+// TransactionsByRef returns every transaction belonging to one external object, so a
+// payment's public state can be derived from the books rather than stored beside them.
+func (r *LedgerRepo) TransactionsByRef(ctx context.Context, merchantID, externalRef string) ([]*ledger.Transaction, error) {
+	rows, err := r.q(ctx).TransactionsByRef(ctx, sqlc.TransactionsByRefParams{
+		MerchantID:  merchantID,
+		ExternalRef: nullString(externalRef),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("postgres: transactions by ref: %w", err)
+	}
+
+	out := make([]*ledger.Transaction, 0, len(rows))
+	for _, row := range rows {
+		t, err := transactionFromRow(sqlc.Transaction(row))
+		if err != nil {
+			return nil, err
+		}
+		if t.Entries, err = r.EntriesByTransaction(ctx, t.ID); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, nil
+}
+
 // ── entries ─────────────────────────────────────────────────────────────────
 
 // AppendEntries writes every entry of a transaction in one round trip.

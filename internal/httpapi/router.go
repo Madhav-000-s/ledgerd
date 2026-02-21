@@ -12,6 +12,7 @@ import (
 
 	"github.com/Madhav-000-s/ledgerd/internal/idempotency"
 	"github.com/Madhav-000-s/ledgerd/internal/ledger"
+	"github.com/Madhav-000-s/ledgerd/internal/payments"
 	"github.com/Madhav-000-s/ledgerd/internal/platform/config"
 )
 
@@ -28,14 +29,15 @@ type Health interface {
 
 // Server holds everything the handlers need.
 type Server struct {
-	cfg     config.HTTPConfig
-	ledger  ledger.Service
-	tx      TxRunner
-	keys    APIKeyStore
-	health  Health
-	idem    idempotency.Store
-	limiter *rateLimiter
-	handler http.Handler
+	cfg      config.HTTPConfig
+	ledger   ledger.Service
+	tx       TxRunner
+	keys     APIKeyStore
+	health   Health
+	payments *payments.Service
+	idem     idempotency.Store
+	limiter  *rateLimiter
+	handler  http.Handler
 }
 
 // Options are the server's collaborators.
@@ -46,6 +48,9 @@ type Options struct {
 	Keys   APIKeyStore
 	Health Health
 
+	// Payments may be nil, in which case the payment routes are not mounted.
+	Payments *payments.Service
+
 	// Idempotency may be nil, in which case money-mutating routes do not require a key.
 	// Production always supplies one; leaving it out is for tests that are exercising
 	// something else.
@@ -55,13 +60,14 @@ type Options struct {
 // NewServer wires the router.
 func NewServer(opts Options) *Server {
 	s := &Server{
-		cfg:     opts.Config,
-		ledger:  opts.Ledger,
-		tx:      opts.Tx,
-		keys:    opts.Keys,
-		health:  opts.Health,
-		idem:    opts.Idempotency,
-		limiter: newRateLimiter(opts.Config.RateLimitPerMin),
+		cfg:      opts.Config,
+		ledger:   opts.Ledger,
+		tx:       opts.Tx,
+		keys:     opts.Keys,
+		health:   opts.Health,
+		payments: opts.Payments,
+		idem:     opts.Idempotency,
+		limiter:  newRateLimiter(opts.Config.RateLimitPerMin),
 	}
 	s.handler = s.routes()
 	return s
@@ -168,6 +174,10 @@ func (s *Server) routes() http.Handler {
 			r.Get("/accounts/{id}/balance", s.handleGetBalance)
 			r.Get("/accounts/{id}/entries", s.handleListEntries)
 			r.Get("/transactions/{id}", s.handleGetTransaction)
+
+			if s.payments != nil {
+				r.Get("/payments/{id}", s.handleGetPayment)
+			}
 		})
 
 		// Creating an account is not a money movement, so it does not require a key.
@@ -183,6 +193,13 @@ func (s *Server) routes() http.Handler {
 
 			r.Post("/transfers", s.handleCreateTransfer)
 			r.Post("/transactions/{id}/reverse", s.handleReverseTransaction)
+
+			if s.payments != nil {
+				r.Post("/payments", s.handleCreatePayment)
+				r.Post("/payments/{id}/capture", s.handleCapturePayment)
+				r.Post("/payments/{id}/cancel", s.handleCancelPayment)
+				r.Post("/refunds", s.handleCreateRefund)
+			}
 		})
 	})
 

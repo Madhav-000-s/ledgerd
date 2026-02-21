@@ -13,6 +13,7 @@ import (
 	"github.com/Madhav-000-s/ledgerd/internal/idempotency"
 	"github.com/Madhav-000-s/ledgerd/internal/ledger"
 	"github.com/Madhav-000-s/ledgerd/internal/money"
+	"github.com/Madhav-000-s/ledgerd/internal/payments"
 )
 
 // ErrorType is the coarse class of a failure, using the vocabulary a payments API
@@ -140,6 +141,16 @@ var errorTable = []mapping{
 	{ledger.ErrNotPending, http.StatusConflict, TypeLedger, "transaction_not_pending", ""},
 	{ledger.ErrNotPosted, http.StatusConflict, TypeLedger, "transaction_not_posted", ""},
 	{ledger.ErrInvalidAmount, http.StatusBadRequest, TypeInvalidRequest, "invalid_amount", "amount"},
+
+	// Payments. A fee at or above the amount is the caller's schedule meeting a charge
+	// too small for it, which is a 422 rather than a 500: the request was well formed.
+	{payments.ErrFeeExceedsAmount, http.StatusUnprocessableEntity, TypeLedger, "fee_exceeds_amount", "amount"},
+	{payments.ErrRefundExceedsPayment, http.StatusUnprocessableEntity, TypeLedger, "refund_exceeds_payment", "amount"},
+	{payments.ErrNotRefundable, http.StatusConflict, TypeLedger, "payment_not_refundable", ""},
+	{payments.ErrNotCapturable, http.StatusConflict, TypeLedger, "payment_not_capturable", ""},
+	{payments.ErrPaymentNotFound, http.StatusNotFound, TypeInvalidRequest, "payment_not_found", ""},
+	{payments.ErrAmountRequired, http.StatusBadRequest, TypeInvalidRequest, "invalid_amount", "amount"},
+	{payments.ErrInvalidFeeSchedule, http.StatusInternalServerError, TypeAPI, "invalid_fee_schedule", ""},
 
 	// Idempotency. A key reused for a different request is a 422 rather than a 409: the
 	// request is well formed, but honouring it would mean answering a question the

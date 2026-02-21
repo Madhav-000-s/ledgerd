@@ -46,6 +46,9 @@ type Service interface {
 	// GetTransaction returns a transaction with its entries expanded.
 	GetTransaction(ctx context.Context, txnID string) (*Transaction, error)
 
+	// TransactionsByRef returns every transaction belonging to one external object.
+	TransactionsByRef(ctx context.Context, merchantID, externalRef string) ([]*Transaction, error)
+
 	// ListEntries returns one page of an account's ledger view and the next cursor.
 	ListEntries(ctx context.Context, accountID string, p Page) ([]Entry, string, error)
 }
@@ -105,6 +108,10 @@ func (s *service) GetAccount(ctx context.Context, accountID string) (*Account, e
 
 func (s *service) ListAccounts(ctx context.Context, merchantID string) ([]*Account, error) {
 	return s.repo.ListAccounts(ctx, merchantID)
+}
+
+func (s *service) TransactionsByRef(ctx context.Context, merchantID, externalRef string) ([]*Transaction, error) {
+	return s.repo.TransactionsByRef(ctx, merchantID, externalRef)
 }
 
 func (s *service) Balance(ctx context.Context, accountID string) (Balance, error) {
