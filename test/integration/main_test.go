@@ -224,16 +224,32 @@ func entry(accountID string, d ledger.Direction, n int64) ledger.EntrySpec {
 	return ledger.EntrySpec{AccountID: accountID, Direction: d, Amount: usd(n)}
 }
 
-// truncateAll empties the ledger between tests. RESTART IDENTITY resets the entry
+// truncateAll empties every table between tests. RESTART IDENTITY resets the entry
 // sequence so that assertions about id ordering start from a known point.
+//
+// Every table has to be listed. A table left out leaks state into the next test, and the
+// symptom is a dispatcher claiming events the test never emitted — which looks like a
+// bug in the code under test rather than in the harness.
 func truncateAll(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 
 	// entries is append-only for the application role, but TRUNCATE is DDL and is not
 	// intercepted by the DO INSTEAD NOTHING rules, which is what makes a clean slate
 	// possible without dropping the schema.
-	_, err := pool.Exec(context.Background(),
-		`TRUNCATE entries, account_balances, transactions, accounts RESTART IDENTITY CASCADE`)
+	_, err := pool.Exec(context.Background(), `
+        TRUNCATE
+            webhook_attempts,
+            webhook_deliveries,
+            webhook_secrets,
+            webhook_endpoints,
+            events,
+            idempotency_keys,
+            api_keys,
+            entries,
+            account_balances,
+            transactions,
+            accounts
+        RESTART IDENTITY CASCADE`)
 	if err != nil {
 		t.Fatalf("truncating: %v", err)
 	}

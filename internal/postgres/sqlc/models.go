@@ -141,6 +141,94 @@ func (ns NullBalanceSide) Value() (driver.Value, error) {
 	return string(ns.BalanceSide), nil
 }
 
+type DeliveryState string
+
+const (
+	DeliveryStatePending    DeliveryState = "pending"
+	DeliveryStateDelivering DeliveryState = "delivering"
+	DeliveryStateSucceeded  DeliveryState = "succeeded"
+	DeliveryStateExhausted  DeliveryState = "exhausted"
+	DeliveryStateDisabled   DeliveryState = "disabled"
+)
+
+func (e *DeliveryState) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = DeliveryState(s)
+	case string:
+		*e = DeliveryState(s)
+	default:
+		return fmt.Errorf("unsupported scan type for DeliveryState: %T", src)
+	}
+	return nil
+}
+
+type NullDeliveryState struct {
+	DeliveryState DeliveryState
+	Valid         bool // Valid is true if DeliveryState is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullDeliveryState) Scan(value interface{}) error {
+	if value == nil {
+		ns.DeliveryState, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.DeliveryState.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullDeliveryState) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.DeliveryState), nil
+}
+
+type EndpointStatus string
+
+const (
+	EndpointStatusActive   EndpointStatus = "active"
+	EndpointStatusDegraded EndpointStatus = "degraded"
+	EndpointStatusDisabled EndpointStatus = "disabled"
+)
+
+func (e *EndpointStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = EndpointStatus(s)
+	case string:
+		*e = EndpointStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for EndpointStatus: %T", src)
+	}
+	return nil
+}
+
+type NullEndpointStatus struct {
+	EndpointStatus EndpointStatus
+	Valid          bool // Valid is true if EndpointStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullEndpointStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.EndpointStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.EndpointStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullEndpointStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.EndpointStatus), nil
+}
+
 type EntryStatus string
 
 const (
@@ -317,6 +405,16 @@ type Entry struct {
 	CreatedAt     pgtype.Timestamptz
 }
 
+type Event struct {
+	ID           string
+	MerchantID   string
+	Type         string
+	ResourceID   string
+	Payload      []byte
+	DispatchedAt pgtype.Timestamptz
+	CreatedAt    pgtype.Timestamptz
+}
+
 type IdempotencyKey struct {
 	ID             string
 	MerchantID     string
@@ -346,4 +444,52 @@ type Transaction struct {
 	Metadata    []byte
 	CreatedAt   pgtype.Timestamptz
 	PostedAt    pgtype.Timestamptz
+}
+
+type WebhookAttempt struct {
+	ID          int64
+	DeliveryID  string
+	Attempt     int32
+	StatusCode  *int32
+	Error       *string
+	DurationMs  *int32
+	AttemptedAt pgtype.Timestamptz
+}
+
+type WebhookDelivery struct {
+	ID             string
+	EventID        string
+	EndpointID     string
+	MerchantID     string
+	State          DeliveryState
+	Attempt        int32
+	NextAttemptAt  pgtype.Timestamptz
+	LeasedUntil    pgtype.Timestamptz
+	LastStatus     *int32
+	LastError      *string
+	LastDurationMs *int32
+	CreatedAt      pgtype.Timestamptz
+	CompletedAt    pgtype.Timestamptz
+}
+
+type WebhookEndpoint struct {
+	ID                  string
+	MerchantID          string
+	Url                 string
+	EnabledEvents       []string
+	Status              EndpointStatus
+	ConsecutiveFailures int32
+	Description         string
+	CreatedAt           pgtype.Timestamptz
+	DisabledAt          pgtype.Timestamptz
+}
+
+type WebhookSecret struct {
+	ID         string
+	EndpointID string
+	SecretHash []byte
+	SecretEnc  []byte
+	Active     bool
+	CreatedAt  pgtype.Timestamptz
+	RetiredAt  pgtype.Timestamptz
 }
