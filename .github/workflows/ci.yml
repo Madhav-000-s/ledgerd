@@ -1,0 +1,184 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A push that supersedes an in-flight run cancels it; there is no value in finishing CI
+# for a commit nobody will look at again.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The floor is 1.25.7 rather than the design doc's 1.23: current pgx requires 1.25.0
+  # and goose requires 1.25.7. Pinning year-old dependencies to preserve the older floor
+  # would be the worse trade with govulncheck in this same pipeline.
+  GO_VERSION: "1.25.7"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt'd:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go vet (integration build tag)
+        run: go vet -tags=integration ./test/...
+
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=5m
+
+      # sqlc output is committed so a clone builds without the tool. This proves the
+      # committed code still matches the SQL it was generated from — a hand edit to a
+      # generated file would otherwise pass every other check.
+      - name: sqlc generate is up to date
+        run: |
+          go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
+          sqlc generate
+          if ! git diff --exit-code --stat; then
+            echo "sqlc output is stale; run 'make sqlc' and commit the result"
+            exit 1
+          fi
+
+  vuln:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+  unit:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 1.25.7 is the floor; the current release catches anything the floor's compiler
+        # is more forgiving about.
+        go: ["1.25.7", "1.26.x"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          cache: true
+
+      # -race is not negotiable. The concurrency design is the point of the project, and
+      # a data race that only shows up under load is exactly what this catches.
+      - name: test
+        run: go test -race -count=1 ./internal/... ./pkg/...
+
+  integration:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Both supported majors. The deferred constraint trigger and SKIP LOCKED
+        # behaviour are the things that would differ, and they are load-bearing.
+        postgres: ["15-alpine", "16-alpine"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      # testcontainers starts Postgres itself; pulling here keeps the pull out of the
+      # first test's startup timeout.
+      - name: pull postgres image
+        run: docker pull postgres:${{ matrix.postgres }}
+
+      - name: integration tests
+        env:
+          LEDGERD_TEST_POSTGRES_IMAGE: postgres:${{ matrix.postgres }}
+        run: go test -race -count=1 -tags=integration -timeout=30m ./test/integration/...
+
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      # A short pass per target on every push. The seed corpus is committed, so a
+      # previously found crasher is a regression test rather than a rediscovery.
+      - name: fuzz money
+        run: |
+          go test -run=FuzzMoneyParse -fuzz=FuzzMoneyParse -fuzztime=30s ./internal/money/
+          go test -run=FuzzAllocate -fuzz=FuzzAllocate -fuzztime=30s ./internal/money/
+
+      - name: fuzz idempotency
+        run: |
+          go test -run=FuzzCanonicalJSON -fuzz=FuzzCanonicalJSON -fuzztime=30s ./internal/idempotency/
+          go test -run=FuzzFingerprint -fuzz=FuzzFingerprint -fuzztime=30s ./internal/idempotency/
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: build both binaries
+        run: |
+          go build -o bin/ledgerd ./cmd/ledgerd
+          go build -o bin/workerd ./cmd/workerd
+
+  # The coverage gate spans both suites. Large parts of internal/postgres are only
+  # reachable with a real database, so a unit-only measurement understates the project by
+  # roughly twenty points — and would create pressure to mock the database to make the
+  # number go up, which is precisely what this codebase refuses to do.
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: pull postgres image
+        run: docker pull postgres:16-alpine
+
+      # The same script `make cover` runs, so a contributor can reproduce the gate
+      # locally rather than discovering it in CI.
+      - name: coverage gate
+        run: bash scripts/coverage.sh 85
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage
+          path: |
+            merged.out
+            gate.out

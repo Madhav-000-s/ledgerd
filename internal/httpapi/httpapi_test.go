@@ -1070,3 +1070,36 @@ func TestMoneyParsesCurrencyCaseInsensitively(t *testing.T) {
 		t.Errorf("currency = %q, want JPY", got)
 	}
 }
+
+// APIError carries the cause for logging without serializing it.
+func TestAPIErrorWrapping(t *testing.T) {
+	cause := errors.New("connection refused")
+	err := Errorf(http.StatusInternalServerError, TypeAPI, "internal_error", "Something broke.").
+		WithCause(cause).
+		WithParam("amount")
+
+	if !errors.Is(err, cause) {
+		t.Error("the cause is not reachable through errors.Is")
+	}
+	if errors.Unwrap(err) != cause {
+		t.Error("Unwrap did not return the cause")
+	}
+	if !strings.Contains(err.Error(), "connection refused") {
+		t.Errorf("Error() = %q, want it to mention the cause for logging", err.Error())
+	}
+	if err.Param != "amount" {
+		t.Errorf("Param = %q", err.Param)
+	}
+
+	// The builders copy, so a package-level sentinel cannot be mutated by a handler.
+	plain := Errorf(http.StatusBadRequest, TypeInvalidRequest, "bad", "Bad.")
+	_ = plain.WithParam("x").WithCause(cause).WithMessage("y")
+	if plain.Param != "" || plain.Err != nil || plain.Message != "Bad." {
+		t.Error("a builder mutated the original instead of copying")
+	}
+
+	// An error with no cause still renders.
+	if got := plain.Error(); !strings.Contains(got, "bad") {
+		t.Errorf("Error() = %q", got)
+	}
+}

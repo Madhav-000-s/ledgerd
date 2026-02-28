@@ -34,9 +34,17 @@ var (
 func TestMain(m *testing.M) {
 	ctx := context.Background()
 
+	// CI runs the suite against both supported majors. The deferred constraint trigger
+	// and SKIP LOCKED are the behaviours that would differ between them, and both are
+	// load-bearing here.
+	image := os.Getenv("LEDGERD_TEST_POSTGRES_IMAGE")
+	if image == "" {
+		image = "postgres:16-alpine"
+	}
+
 	var err error
 	container, err = tcpostgres.Run(ctx,
-		"postgres:16-alpine",
+		image,
 		tcpostgres.WithDatabase("ledgerd"),
 		tcpostgres.WithUsername("ledgerd"),
 		tcpostgres.WithPassword("ledgerd"),

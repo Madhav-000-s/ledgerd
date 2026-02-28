@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"strings"
 	"testing"
 )
 
@@ -324,5 +325,43 @@ func TestEveryCurrencyIsFormattable(t *testing.T) {
 		if _, err := MustNew(12345, c).Format(); err != nil {
 			t.Errorf("Format for %s = %v", c, err)
 		}
+	}
+}
+
+func TestAbs(t *testing.T) {
+	tests := []struct {
+		in   int64
+		want int64
+	}{{500, 500}, {-500, 500}, {0, 0}}
+
+	for _, tc := range tests {
+		got, err := MustNew(tc.in, USD).Abs()
+		if err != nil {
+			t.Errorf("Abs(%d) = %v", tc.in, err)
+			continue
+		}
+		if got.Amount() != tc.want {
+			t.Errorf("Abs(%d) = %d, want %d", tc.in, got.Amount(), tc.want)
+		}
+	}
+
+	// MinInt64 has no positive counterpart, so Abs must report rather than wrap.
+	if _, err := MustNew(math.MinInt64, USD).Abs(); !errors.Is(err, ErrOverflow) {
+		t.Errorf("Abs(MinInt64) = %v, want ErrOverflow", err)
+	}
+}
+
+func TestString(t *testing.T) {
+	if got := MustNew(9680, USD).String(); got != "96.80 USD" {
+		t.Errorf("String() = %q, want \"96.80 USD\"", got)
+	}
+	if got := MustNew(100, JPY).String(); got != "100 JPY" {
+		t.Errorf("String() = %q, want \"100 JPY\"", got)
+	}
+
+	// An amount in an unknown currency must still render something diagnosable rather
+	// than panicking inside a log line.
+	if got := (Money{amount: 5, currency: "XYZ"}).String(); !strings.Contains(got, "5") {
+		t.Errorf("String() for an unknown currency = %q", got)
 	}
 }

@@ -76,6 +76,28 @@ SELECT COALESCE(SUM(
 -- is the source of truth, and reports any account whose materialized balance disagrees
 -- (I7).
 --
+-- DriftedAccounts returns only the accounts where the materialized balance and the
+-- balance derived from the entry log disagree. This is invariant I7, and a non-empty
+-- result is a P0 page: money has been created or destroyed somewhere.
+--
+-- name: DriftedAccounts :many
+SELECT a.id AS account_id,
+       b.posted_minor AS materialized,
+       COALESCE(SUM(
+           CASE WHEN e.direction::text = a.normal_balance::text THEN e.amount_minor
+                ELSE -e.amount_minor
+           END
+       ) FILTER (WHERE e.status = 'posted'), 0)::bigint AS derived
+  FROM accounts a
+  JOIN account_balances b ON b.account_id = a.id
+  LEFT JOIN entries e ON e.account_id = a.id
+ GROUP BY a.id, b.posted_minor
+HAVING b.posted_minor <> COALESCE(SUM(
+           CASE WHEN e.direction::text = a.normal_balance::text THEN e.amount_minor
+                ELSE -e.amount_minor
+           END
+       ) FILTER (WHERE e.status = 'posted'), 0)::bigint;
+
 -- name: DerivedBalances :many
 SELECT a.id AS account_id,
        b.posted_minor AS materialized,
@@ -88,3 +110,6 @@ SELECT a.id AS account_id,
   JOIN account_balances b ON b.account_id = a.id
   LEFT JOIN entries e ON e.account_id = a.id
  GROUP BY a.id, b.posted_minor;
+
+-- name: ListCurrencies :many
+SELECT DISTINCT currency::text AS currency FROM accounts ORDER BY currency;

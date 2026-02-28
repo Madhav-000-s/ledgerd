@@ -36,9 +36,12 @@ test-integration: ## Integration tests against a real Postgres (needs Docker)
 	$(GO) test -race -count=1 -tags=integration ./test/integration/...
 
 .PHONY: cover
-cover: ## Coverage report over ./internal, gated at $(COVER_MIN)%
-	$(GO) test -race -count=1 -coverprofile=cover.out $(INTERNAL)
-	$(GO) tool cover -func=cover.out | tail -1
+cover: ## Combined unit + integration coverage, gated at $(COVER_MIN)% (needs Docker)
+	bash scripts/coverage.sh $(COVER_MIN)
+
+.PHONY: cover-html
+cover-html: cover ## Combined coverage as a browsable report
+	$(GO) tool cover -html=gate.out -o coverage.html
 
 .PHONY: lint
 lint: ## go vet + golangci-lint
@@ -75,4 +78,4 @@ db-down: ## Stop and remove local infrastructure
 
 .PHONY: clean
 clean: ## Remove build and coverage artifacts
-	rm -rf bin cover.out coverage.html
+	rm -rf bin cover.out unit.out integration.out merged.out gate.out coverage.html

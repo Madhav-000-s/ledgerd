@@ -2,11 +2,15 @@
 .claude/
 .claude
 
-# Build output
+# Build output.
+#
+# The binary names are anchored to the repository root. A bare "ledgerd" would also match
+# the cmd/ledgerd source directory, since a pattern with no slash matches at any depth —
+# which silently excludes the program it was meant to protect against committing.
 /bin/
 /dist/
-ledgerd
-workerd
+/ledgerd
+/workerd
 *.exe
 *.exe~
 *.dll

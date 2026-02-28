@@ -101,9 +101,6 @@ type DerivedBalancesRow struct {
 	Derived      int64
 }
 
-// DerivedBalances recomputes every account's posted balance from the entry log, which
-// is the source of truth, and reports any account whose materialized balance disagrees
-// (I7).
 func (q *Queries) DerivedBalances(ctx context.Context) ([]DerivedBalancesRow, error) {
 	rows, err := q.db.Query(ctx, derivedBalances)
 	if err != nil {
@@ -113,6 +110,58 @@ func (q *Queries) DerivedBalances(ctx context.Context) ([]DerivedBalancesRow, er
 	items := []DerivedBalancesRow{}
 	for rows.Next() {
 		var i DerivedBalancesRow
+		if err := rows.Scan(&i.AccountID, &i.Materialized, &i.Derived); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const driftedAccounts = `-- name: DriftedAccounts :many
+SELECT a.id AS account_id,
+       b.posted_minor AS materialized,
+       COALESCE(SUM(
+           CASE WHEN e.direction::text = a.normal_balance::text THEN e.amount_minor
+                ELSE -e.amount_minor
+           END
+       ) FILTER (WHERE e.status = 'posted'), 0)::bigint AS derived
+  FROM accounts a
+  JOIN account_balances b ON b.account_id = a.id
+  LEFT JOIN entries e ON e.account_id = a.id
+ GROUP BY a.id, b.posted_minor
+HAVING b.posted_minor <> COALESCE(SUM(
+           CASE WHEN e.direction::text = a.normal_balance::text THEN e.amount_minor
+                ELSE -e.amount_minor
+           END
+       ) FILTER (WHERE e.status = 'posted'), 0)::bigint
+`
+
+type DriftedAccountsRow struct {
+	AccountID    string
+	Materialized int64
+	Derived      int64
+}
+
+// DerivedBalances recomputes every account's posted balance from the entry log, which
+// is the source of truth, and reports any account whose materialized balance disagrees
+// (I7).
+//
+// DriftedAccounts returns only the accounts where the materialized balance and the
+// balance derived from the entry log disagree. This is invariant I7, and a non-empty
+// result is a P0 page: money has been created or destroyed somewhere.
+func (q *Queries) DriftedAccounts(ctx context.Context) ([]DriftedAccountsRow, error) {
+	rows, err := q.db.Query(ctx, driftedAccounts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []DriftedAccountsRow{}
+	for rows.Next() {
+		var i DriftedAccountsRow
 		if err := rows.Scan(&i.AccountID, &i.Materialized, &i.Derived); err != nil {
 			return nil, err
 		}
@@ -231,6 +280,30 @@ func (q *Queries) ListAccounts(ctx context.Context, merchantID string) ([]ListAc
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCurrencies = `-- name: ListCurrencies :many
+SELECT DISTINCT currency::text AS currency FROM accounts ORDER BY currency
+`
+
+func (q *Queries) ListCurrencies(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, listCurrencies)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var currency string
+		if err := rows.Scan(&currency); err != nil {
+			return nil, err
+		}
+		items = append(items, currency)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
