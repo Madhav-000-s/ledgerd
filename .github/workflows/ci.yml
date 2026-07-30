@@ -15,7 +15,11 @@ env:
   # The floor is 1.25.7 rather than the design doc's 1.23: current pgx requires 1.25.0
   # and goose requires 1.25.7. Pinning year-old dependencies to preserve the older floor
   # would be the worse trade with govulncheck in this same pipeline.
-  GO_VERSION: "1.25.7"
+  #
+  # Patch pinned to 1.25.11 (not just the 1.25.7 floor) because govulncheck checks the
+  # stdlib of the toolchain actually running it: net/textproto, crypto/x509, net,
+  # crypto/tls and net/url all had fixes land between 1.25.7 and 1.25.11.
+  GO_VERSION: "1.25.11"
 
 jobs:
   lint:
@@ -42,7 +46,7 @@ jobs:
       - name: go vet (integration build tag)
         run: go vet -tags=integration ./test/...
 
-      - uses: golangci/golangci-lint-action@v6
+      - uses: golangci/golangci-lint-action@v9
         with:
           version: latest
           args: --timeout=5m
