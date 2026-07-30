@@ -32,7 +32,10 @@ func Migrate(ctx context.Context, db *DB) error {
 	goose.SetLogger(goose.NopLogger())
 
 	sqlDB := stdlib.OpenDBFromPool(db.pool)
-	defer sqlDB.Close()
+	// Closing the adapter releases nothing but the adapter itself — the pool it wraps
+	// outlives this call — so a close error has no caller-visible consequence and is
+	// deliberately dropped rather than shadowing the migration's own error.
+	defer func() { _ = sqlDB.Close() }()
 
 	if err := goose.UpContext(ctx, sqlDB, "."); err != nil {
 		return fmt.Errorf("postgres: applying migrations: %w", err)
@@ -52,7 +55,7 @@ func MigrateDown(ctx context.Context, db *DB) error {
 	goose.SetLogger(goose.NopLogger())
 
 	sqlDB := stdlib.OpenDBFromPool(db.pool)
-	defer sqlDB.Close()
+	defer func() { _ = sqlDB.Close() }()
 
 	if err := goose.DownContext(ctx, sqlDB, "."); err != nil {
 		return fmt.Errorf("postgres: rolling back migration: %w", err)
@@ -72,7 +75,7 @@ func SchemaVersion(ctx context.Context, db *DB) (int64, error) {
 	goose.SetLogger(goose.NopLogger())
 
 	sqlDB := stdlib.OpenDBFromPool(db.pool)
-	defer sqlDB.Close()
+	defer func() { _ = sqlDB.Close() }()
 
 	v, err := goose.GetDBVersionContext(ctx, sqlDB)
 	if err != nil {

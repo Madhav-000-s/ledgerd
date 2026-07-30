@@ -939,10 +939,16 @@ GET    /metrics   Prometheus
 ### 9.2 Middleware chain (order matters)
 
 ```
-RequestID → RealIP → Recoverer → StructuredLogger → Metrics → Timeout(30s)
+RequestID → Recoverer → StructuredLogger → Metrics → Timeout(30s)
   → Auth(API key) → RateLimit(per-key token bucket) → BodyLimit(1MiB)
   → Idempotency → handler
 ```
+
+RealIP was in this chain and has been dropped. It rewrote `RemoteAddr` from
+`X-Forwarded-For`/`True-Client-IP`/`X-Real-IP` unconditionally, which lets any client
+pick the address the service believes it came from. Nothing here reads `RemoteAddr` —
+rate limiting is keyed on the API key — so it was a spoofing vector buying no behaviour.
+Reintroducing a client address requires an explicit trusted-proxy hop count.
 
 Idempotency sits **after** auth (the key is merchant-scoped, so we need the merchant
 first) and **after** body limiting (we hash the body, so it must be bounded).

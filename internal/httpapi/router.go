@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/Madhav-000-s/ledgerd/internal/idempotency"
 	"github.com/Madhav-000-s/ledgerd/internal/ledger"
@@ -130,7 +129,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // The order in the chain is load-bearing, not stylistic:
 //
 //	requestID    first, so every later line and every error carries it
-//	realIP       before logging, or every request appears to come from the proxy
 //	recoverer    outside the handler but inside logging, so a panic is still logged
 //	logger       wraps the writer to capture the status
 //	timeout      before anything that can block on the database
@@ -143,8 +141,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (s *Server) routes() http.Handler {
 	r := chi.NewRouter()
 
+	// No RealIP middleware. chi's rewrites RemoteAddr from X-Forwarded-For,
+	// True-Client-IP or X-Real-IP whether or not the deployment's proxy sets any of
+	// them, so any client can choose the address the service believes it came from
+	// (GHSA-3fxj-6jh8-hvhx and friends). Nothing here reads RemoteAddr — the rate limiter
+	// is keyed on the API key, not the peer — so the middleware bought a spoofing vector
+	// and no behaviour. If a caller's address is ever needed, it has to arrive with an
+	// explicit list of trusted proxy hops rather than by trusting a header.
 	r.Use(requestID)
-	r.Use(middleware.RealIP)
 	r.Use(recoverer)
 	r.Use(structuredLogger)
 	r.Use(timeout(s.cfg.HandlerTimeout))

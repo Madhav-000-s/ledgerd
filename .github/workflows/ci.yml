@@ -16,10 +16,14 @@ env:
   # and goose requires 1.25.7. Pinning year-old dependencies to preserve the older floor
   # would be the worse trade with govulncheck in this same pipeline.
   #
-  # Patch pinned to 1.25.11 (not just the 1.25.7 floor) because govulncheck checks the
-  # stdlib of the toolchain actually running it: net/textproto, crypto/x509, net,
-  # crypto/tls and net/url all had fixes land between 1.25.7 and 1.25.11.
-  GO_VERSION: "1.25.11"
+  # The patch floats rather than being pinned, because govulncheck checks the stdlib of
+  # the toolchain actually running it: pinning an exact patch means every stdlib advisory
+  # (crypto/tls in 1.25.12, net/textproto and crypto/x509 before it) turns the whole
+  # pipeline red until someone hand-bumps this line. Patch releases within a minor are
+  # compatible by policy, so tracking the newest 1.25 costs nothing and keeps the vuln
+  # gate reporting on the project's own code instead of on the runner's Go build. The
+  # minor stays pinned — that is the version decision worth making deliberately.
+  GO_VERSION: "1.25.x"
 
 jobs:
   lint:
